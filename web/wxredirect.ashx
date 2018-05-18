@@ -38,7 +38,12 @@ public class wxredirect : IHttpHandler
 
     void genUrl()
     {
-        string url = Request.Form["url"];
+        string url = Request["url"];
+
+        if (string.IsNullOrEmpty(url))
+        {
+            return;
+        }
         string key = null;
 
         var db = Common.DB.Factory.CreateDBHelper();
@@ -222,7 +227,7 @@ public class wxredirect : IHttpHandler
             nvc["ticketsdate"] = DateTime.Now;
             nvc["tickets"] = tikets;
             nvc["code"] = code;
-            db.ExecuteNoneQuery("update [url.data] set tickets=@tickets,ticketsdate=@ticketsdate where code=@code ");
+            db.ExecuteNoneQuery("update [url.data] set tickets=@tickets,ticketsdate=@ticketsdate where code=@code ",nvc);
         }
 
 
