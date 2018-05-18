@@ -4,6 +4,7 @@ using System;
 using System.Web;
 using System.Net;
 using System.Text.RegularExpressions;
+using Newtonsoft.Json;
 
 public class wxredirect : IHttpHandler
 {
@@ -14,23 +15,219 @@ public class wxredirect : IHttpHandler
     {
         this.Request = context.Request;
         this.Response = context.Response;
+        switch (Request.PathInfo)
+        {
+            case "/go":
+                golink();
+                break;
 
-        string key = (Request.PathInfo ?? string.Empty).Replace("/", string.Empty);
+            case "/genurl":
+                genUrl();
+                break;
+
+            default:
+                break;
+        }
+    }
+
+    void golink()
+    {
+        string code = Request.QueryString["code"] ?? string.Empty;
+        EchoHtml(code);
+    }
+
+    void genUrl()
+    {
+        string url = Request.Form["url"];
+        string key = null;
+
+        var db = Common.DB.Factory.CreateDBHelper();
+
+        int num = 0;
+        bool exists = false;
+        do
+        {
+            key = GetShortUrl(url);
+            exists = db.Exists("select top 1 1 from [url.data] where code=@0", key);
+            num++;
+
+        } while (exists && num < 5);
+
+        if (!exists)
+        {
+            do
+            {
+                key = GetShortUrl(url + DateTime.Now.Ticks);
+
+                exists = db.Exists("select top 1 1 from [url.data] where code=@0", key);
+                num++;
+
+            } while (exists && num < 50);
+        }
+
+        object result = null;
+
+        if (!exists)
+        {
+            var nvc = new Common.DB.NVCollection();
+            nvc["name"] = string.Empty;
+            nvc["link"] = url;
+            nvc["date"] = DateTime.Now;
+            nvc["enddate"] = DateTime.Now.AddDays(1);
+            nvc["code"] = key;
+
+            db.ExecuteNoneQuery("insert into [url.data](name,link,date,enddate,code) values(@name,@link,@date,@enddate,@code)", nvc);
+
+            result = new
+            {
+                code = 0,
+                data = new
+                {
+                    url = "http://" + Request.Url.Host + "/wxredirect.ashx/go?code=" + key,
+                    enddate = Convert.ToDateTime(nvc["enddate"]).ToString("yyyy-MM-dd hh:mm:ss")
+                }
+            };
+        }
+        else
+        {
+            result = new
+            {
+                code = -1
+            };
+        }
+
+        string jsonStr = JsonConvert.SerializeObject(result);
+
+        string callback = Request.QueryString["callback"] ?? string.Empty;
 
 
-
-
-
-
+        if (!string.IsNullOrEmpty(callback))
+        {
+            Response.Write(callback + "(" + jsonStr + ")");
+        }
+        else
+        {
+            Response.Write(jsonStr);
+        }
     }
 
 
+    string GetShortUrl(string url)
+    {
+        var urls = ShortUrl(url);
+
+        if (urls != null)
+        {
+            var rnd = new Random();
+
+            return urls[rnd.Next(0, urls.Length)];
+        }
+
+        return null;
+    }
+
+    string[] ShortUrl(string url)
+    {
+        //可以自定义生成MD5加密字符传前的混合KEY
+        string key = "url";
+        //要使用生成URL的字符
+        string[] chars = new string[]{
+            "a" , "b" , "c" , "d" , "e" , "f" , "g" , "h" ,
+            "i" , "j" , "k" , "l" , "m" , "n" , "o" , "p" ,
+            "q" , "r" , "s" , "t" , "u" , "v" , "w" , "x" ,
+            "y" , "z" , "0" , "1" , "2" , "3" , "4" , "5" ,
+            "6" , "7" , "8" , "9" , "A" , "B" , "C" , "D" ,
+            "E" , "F" , "G" , "H" , "I" , "J" , "K" , "L" ,
+            "M" , "N" , "O" , "P" , "Q" , "R" , "S" , "T" ,
+            "U" , "V" , "W" , "X" , "Y" , "Z"
+        };
+
+        //对传入网址进行MD5加密
+        string hex = System.Web.Security.FormsAuthentication.HashPasswordForStoringInConfigFile(key + url, "md5");
 
 
-    void EchoHtml(string url)
+        string[] resUrl = new string[4];
+        for (int i = 0; i < 4; i++)
+        {
+            //把加密字符按照8位一组16进制与0x3FFFFFFF进行位与运算
+            int hexint = 0x3FFFFFFF & Convert.ToInt32("0x" + hex.Substring(i * 8, 8), 16);
+            string outChars = string.Empty;
+            for (int j = 0; j < 6; j++)
+            {
+                //把得到的值与0x0000003D进行位与运算，取得字符数组chars索引
+                int index = 0x0000003D & hexint;
+                //把取得的字符相加
+                outChars += chars[index];
+                //每次循环按位右移5位
+                hexint = hexint >> 5;
+            }
+            //把字符串存入对应索引的输出数组
+            resUrl[i] = outChars;
+        }
+        return resUrl;
+    }
+
+
+    void EchoHtml(string code)
     {
 
-        string tikets = GetTicket(url);
+        var db = Common.DB.Factory.CreateDBHelper();
+
+        var data = db.GetData("select top 1 tickets,ticketsdate,enddate,link from [url.data] where code=@0", code);
+        if (data == null)
+        {
+            return;
+        }
+
+        string url = data["link"] as string ?? string.Empty;
+
+        DateTime enddate = Convert.ToDateTime(data["enddate"]);
+
+        if (enddate < DateTime.Now)
+        {
+            Response.Redirect("/exp.html");
+            return;
+        }
+
+
+        string tikets = null;
+        bool needUpdate = false;
+        if (data["tickets"] == null || data["tickets"] == DBNull.Value)
+        {
+            tikets = GetTicket(url);
+            needUpdate = true;
+        }
+        else
+        {
+            if (data["ticketsdate"] != null)
+            {
+                var ticketsdate = Convert.ToDateTime(data["ticketsdate"]);
+
+                if (ticketsdate < DateTime.Now.AddMinutes(-30))
+                {
+                    tikets = GetTicket(url);
+                    needUpdate = true;
+                }
+            }
+        }
+
+        if (string.IsNullOrEmpty(tikets))
+        {
+            return;
+        }
+
+        if (needUpdate)
+        {
+            var nvc = new Common.DB.NVCollection();
+            nvc["ticketsdate"] = DateTime.Now;
+            nvc["tickets"] = tikets;
+            nvc["code"] = code;
+            db.ExecuteNoneQuery("update [url.data] set tickets=@tickets,ticketsdate=@ticketsdate where code=@code ");
+        }
+
+
+
+
 
         Response.ContentType = "text/html;charset=utf-8";
         Response.Write(@"<!DOCTYPE html>");
@@ -77,11 +274,11 @@ public class wxredirect : IHttpHandler
             string content = System.Text.Encoding.GetEncoding("utf-8").GetString(data);
             if (!string.IsNullOrEmpty(content))
             {
-                var match = System.Text.RegularExpressions.Regex.Match(content, @"openlink"":""(?<link>.*?)""", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                var match = System.Text.RegularExpressions.Regex.Match(content, @"openlink""\:""(?<link>.*?)""", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
                 if (match.Success)
                 {
-                    Response.Write(match.Groups["link"].Value);
+                    return match.Groups["link"].Value;
                 }
             }
 
