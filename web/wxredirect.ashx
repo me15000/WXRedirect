@@ -44,9 +44,43 @@ public class wxredirect : IHttpHandler
         {
             return;
         }
+
+        string callback = Request.QueryString["callback"] ?? string.Empty;
+
+        string pk = GetUrlPK(url);
+
         string key = null;
 
         var db = Common.DB.Factory.CreateDBHelper();
+
+        var existsData = db.GetData("select top 1 code,enddate from [url.data] where pk=@0", pk);
+
+        if (existsData != null)
+        {
+            var jresult = new
+            {
+                code = 0,
+                data = new
+                {
+                    url = "http://" + Request.Url.Host + "/wxredirect.ashx/go?code=" + existsData["code"].ToString(),
+                    enddate = Convert.ToDateTime(existsData["enddate"]).ToString("yyyy-MM-dd hh:mm:ss")
+                }
+            };
+
+            string jStr = JsonConvert.SerializeObject(jresult);
+
+            if (!string.IsNullOrEmpty(callback))
+            {
+                Response.Write(callback + "(" + jStr + ")");
+            }
+            else
+            {
+                Response.Write(jStr);
+            }
+            return;
+        }
+
+
 
         int num = 0;
         bool exists = false;
@@ -80,8 +114,9 @@ public class wxredirect : IHttpHandler
             nvc["date"] = DateTime.Now;
             nvc["enddate"] = DateTime.Now.AddDays(1);
             nvc["code"] = key;
+            nvc["pk"] = pk;
 
-            db.ExecuteNoneQuery("insert into [url.data](name,link,date,enddate,code) values(@name,@link,@date,@enddate,@code)", nvc);
+            db.ExecuteNoneQuery("insert into [url.data](name,link,date,enddate,code,pk) values(@name,@link,@date,@enddate,@code,@pk)", nvc);
 
             result = new
             {
@@ -103,7 +138,6 @@ public class wxredirect : IHttpHandler
 
         string jsonStr = JsonConvert.SerializeObject(result);
 
-        string callback = Request.QueryString["callback"] ?? string.Empty;
 
 
         if (!string.IsNullOrEmpty(callback))
@@ -181,6 +215,7 @@ public class wxredirect : IHttpHandler
         var data = db.GetData("select top 1 tickets,ticketsdate,enddate,link from [url.data] where code=@0", code);
         if (data == null)
         {
+
             return;
         }
 
@@ -195,7 +230,7 @@ public class wxredirect : IHttpHandler
         }
 
 
-        string tikets = null;
+        string tikets = data["tickets"] as string ?? string.Empty;
         bool needUpdate = false;
         if (data["tickets"] == null || data["tickets"] == DBNull.Value)
         {
@@ -227,7 +262,7 @@ public class wxredirect : IHttpHandler
             nvc["ticketsdate"] = DateTime.Now;
             nvc["tickets"] = tikets;
             nvc["code"] = code;
-            db.ExecuteNoneQuery("update [url.data] set tickets=@tickets,ticketsdate=@ticketsdate where code=@code ",nvc);
+            db.ExecuteNoneQuery("update [url.data] set tickets=@tickets,ticketsdate=@ticketsdate where code=@code ", nvc);
         }
 
 
@@ -290,6 +325,26 @@ public class wxredirect : IHttpHandler
         }
 
         return null;
+    }
+
+    string GetUrlPK(string url)
+    {
+        string pk = GetMD5(url) + url.Length;
+
+        return pk;
+    }
+
+    string GetMD5(string str)
+    {
+        byte[] b = System.Text.Encoding.Default.GetBytes(str);
+
+        b = new System.Security.Cryptography.MD5CryptoServiceProvider().ComputeHash(b);
+        string ret = "";
+        for (int i = 0; i < b.Length; i++)
+        {
+            ret += b[i].ToString("x").PadLeft(2, '0');
+        }
+        return ret;
     }
 
     public bool IsReusable
