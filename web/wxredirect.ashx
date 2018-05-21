@@ -6,19 +6,28 @@ using System.Net;
 using System.Text.RegularExpressions;
 using Newtonsoft.Json;
 
-public class wxredirect : IHttpHandler
+public class wxredirect : IHttpHandler, System.Web.SessionState.IRequiresSessionState
 {
 
     HttpRequest Request;
     HttpResponse Response;
+    protected HttpContext context;
+
+
     public void ProcessRequest(HttpContext context)
     {
         this.Request = context.Request;
         this.Response = context.Response;
+        this.context = context;
+
         switch (Request.PathInfo)
         {
             case "/go":
                 golink();
+                break;
+
+            case "/code.gif":
+                code_gif();
                 break;
 
             case "/genurl":
@@ -30,11 +39,34 @@ public class wxredirect : IHttpHandler
         }
     }
 
+    void code_gif()
+    {
+        Response.ContentType = "image/gif";
+
+        var codeHelper = new Common.Helpers.VerifyCodeHelper();
+
+        string code = null;
+
+        var img = codeHelper.CreateImageCode(out code);       // 输出图片
+
+
+        context.Session["code"] = code;
+
+        if (img != null)
+        {
+            img.Save(context.Response.OutputStream, System.Drawing.Imaging.ImageFormat.Gif);
+        }
+
+    }
+
+
     void golink()
     {
         string code = Request.QueryString["code"] ?? string.Empty;
         EchoHtml(code);
     }
+
+
 
     void genUrl()
     {
@@ -42,10 +74,71 @@ public class wxredirect : IHttpHandler
 
         if (string.IsNullOrEmpty(url))
         {
+            EchoJson(new
+            {
+                code = -1,
+                data = new
+                {
+                    msg = "url不能为空"
+                }
+            });
             return;
         }
 
-        string callback = Request.QueryString["callback"] ?? string.Empty;
+
+        if (!Regex.IsMatch(url, @"mp\.weixin\.qq\.com", RegexOptions.IgnoreCase))
+        {
+
+            EchoJson(new
+            {
+                code = -1,
+                data = new
+                {
+                    msg = "仅支持mp.weixin.qq.com 域名下的网址"
+                }
+            });
+            return;
+        }
+
+
+        string code = Request["code"] ?? string.Empty;
+
+        string scode = null;
+
+        bool ismatch = false;
+
+        if (context.Session["code"] != null)
+        {
+            scode = context.Session["code"].ToString();
+        }
+
+        if (!string.IsNullOrEmpty(scode) && !string.IsNullOrEmpty(code))
+        {
+            if (scode.Equals(code, StringComparison.OrdinalIgnoreCase))
+            {
+                ismatch = true;
+            }
+        }
+
+        if (!ismatch)
+        {
+            EchoJson(new
+            {
+                code = -1,
+                data = new
+                {
+                    msg = "验证码校验失败，请重新填写"
+                }
+            });
+
+            return;
+        }
+        else
+        {
+            context.Session["code"] = null;
+        }
+
+
 
         string pk = GetUrlPK(url);
 
@@ -57,7 +150,7 @@ public class wxredirect : IHttpHandler
 
         if (existsData != null)
         {
-            var jresult = new
+            EchoJson(new
             {
                 code = 0,
                 data = new
@@ -65,18 +158,7 @@ public class wxredirect : IHttpHandler
                     url = "http://" + Request.Url.Host + "/wxredirect.ashx/go?code=" + existsData["code"].ToString(),
                     enddate = Convert.ToDateTime(existsData["enddate"]).ToString("yyyy-MM-dd hh:mm:ss")
                 }
-            };
-
-            string jStr = JsonConvert.SerializeObject(jresult);
-
-            if (!string.IsNullOrEmpty(callback))
-            {
-                Response.Write(callback + "(" + jStr + ")");
-            }
-            else
-            {
-                Response.Write(jStr);
-            }
+            });
             return;
         }
 
@@ -116,7 +198,7 @@ public class wxredirect : IHttpHandler
             nvc["code"] = key;
             nvc["pk"] = pk;
 
-            db.ExecuteNoneQuery("insert into [url.data](name,link,date,enddate,code,pk) values(@name,@link,@date,@enddate,@code,@pk)", nvc);
+            db.ExecuteNoneQuery("insert into [url.data](name,link,date,enddate,code,pk,cou) values(@name,@link,@date,@enddate,@code,@pk,0)", nvc);
 
             result = new
             {
@@ -136,8 +218,16 @@ public class wxredirect : IHttpHandler
             };
         }
 
-        string jsonStr = JsonConvert.SerializeObject(result);
+        EchoJson(result);
 
+    }
+
+    void EchoJson(object data)
+    {
+
+        string jsonStr = JsonConvert.SerializeObject(data);
+
+        string callback = Request.QueryString["callback"] ?? string.Empty;
 
 
         if (!string.IsNullOrEmpty(callback))
@@ -265,7 +355,7 @@ public class wxredirect : IHttpHandler
             db.ExecuteNoneQuery("update [url.data] set tickets=@tickets,ticketsdate=@ticketsdate where code=@code ", nvc);
         }
 
-
+        db.ExecuteNoneQuery("update [url.data] set cou=cou+1 where code=@0", code);
 
 
 

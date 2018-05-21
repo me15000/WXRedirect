@@ -44,6 +44,8 @@
                                 <asp:BoundField DataField="date" HeaderText="date" SortExpression="date" />
                                 <asp:BoundField DataField="enddate" HeaderText="enddate" SortExpression="enddate" />
                                 <asp:BoundField DataField="code" HeaderText="code" ReadOnly="True" SortExpression="code" />
+                                <asp:BoundField DataField="cou" HeaderText="cou" ReadOnly="True" SortExpression="cou" />
+
                                 <asp:CommandField ShowSelectButton="True" />
 
                                 <asp:TemplateField HeaderText="地址">
@@ -55,7 +57,7 @@
                             </Columns>
                         </asp:GridView>
 
-                        <asp:SqlDataSource ID="SDS" runat="server" ConnectionString="<%$ ConnectionStrings:default %>" SelectCommand="SELECT [id], [name], [link], [date], [enddate], [code] FROM [url.data] ORDER BY [id] DESC"></asp:SqlDataSource>
+                        <asp:SqlDataSource ID="SDS" runat="server" ConnectionString="<%$ ConnectionStrings:default %>" SelectCommand="SELECT [id], [name], [link], [date], [enddate], [code],cou FROM [url.data] ORDER BY [id] DESC"></asp:SqlDataSource>
 
                     </td>
                     <td style="vertical-align: top">
@@ -73,6 +75,7 @@
 
 
                         <div style="margin-top: 10px;">
+                            <!--
                             <asp:DetailsView ID="DVI" runat="server" Width="480px" AutoGenerateRows="False" DataKeyNames="id" DataSourceID="ESDS" AutoGenerateInsertButton="True" DefaultMode="Insert" OnItemInserted="DVI_ItemInserted" EnableModelValidation="True">
                                 <Fields>
                                     <asp:BoundField DataField="id" HeaderText="id" InsertVisible="False" ReadOnly="True" SortExpression="id" />
@@ -86,6 +89,8 @@
                                     <strong>添加</strong>
                                 </HeaderTemplate>
                             </asp:DetailsView>
+
+                                -->
                         </div>
 
 
