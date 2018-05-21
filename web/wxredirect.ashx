@@ -86,7 +86,7 @@ public class wxredirect : IHttpHandler, System.Web.SessionState.IRequiresSession
         }
 
 
-        if (!Regex.IsMatch(url, @"mp\.weixin\.qq\.com", RegexOptions.IgnoreCase))
+        if (!Regex.IsMatch(url, @"(mp|game)\.weixin\.qq\.com", RegexOptions.IgnoreCase))
         {
 
             EchoJson(new
@@ -94,16 +94,18 @@ public class wxredirect : IHttpHandler, System.Web.SessionState.IRequiresSession
                 code = -1,
                 data = new
                 {
-                    msg = "仅支持mp.weixin.qq.com 域名下的网址"
+                    msg = "仅支持mp.weixin.qq.com |game.weixin.qq.com 域名下的网址"
                 }
             });
             return;
         }
 
-
+        /*
         string code = Request["code"] ?? string.Empty;
 
         string scode = null;
+
+
 
         bool ismatch = false;
 
@@ -137,6 +139,7 @@ public class wxredirect : IHttpHandler, System.Web.SessionState.IRequiresSession
         {
             context.Session["code"] = null;
         }
+        */
 
 
 
@@ -379,10 +382,87 @@ public class wxredirect : IHttpHandler, System.Web.SessionState.IRequiresSession
         Response.Write(@"</html>");
     }
 
-
-
     string GetTicket(string url)
     {
+
+        string lurl = url.ToLower();
+
+        if (lurl.IndexOf("mp.weixin.qq.com") >= 0)
+        {
+            return GetTicketMPWexin(url);
+        }
+        else if (lurl.IndexOf("game.weixin.qq.com") >= 0)
+        {
+            return GetTicketGameWexin(url);
+        }
+
+        return null;
+    }
+
+    string GetTicketGameWexin(string url)
+    {
+
+        Uri uri = null;
+
+        if (!Uri.TryCreate(url, UriKind.Absolute, out uri))
+        {
+            return null;
+        }
+
+        if (string.IsNullOrEmpty(uri.Query))
+        {
+            return null;
+        }
+
+
+
+        var query=  HttpUtility.ParseQueryString(uri.Query);
+
+        string topic_id = query["topic_id"];
+
+
+        if (string.IsNullOrEmpty(topic_id))
+        {
+            return null;
+        }
+
+
+        string link = "https://game.weixin.qq.com/cgi-bin/comm/openlink?noticeid=90070127&appid=wx58164a91f1821369&url=https%3a%2f%2fgame.weixin.qq.com%2fcgi-bin%2fh5%2fstatic%2fcommunity%2fclub_detail.html%3fappid%3dwx95a3a4d7c627e0xx%26topic_id%3d" + topic_id + "%26key%3d7dc869ac8a00de992f27241f3346bb9bfc948223e63523e60f3c4fb27f190e9cd44b53168bb3e8b76ab961e687a7fc698ec8f07a1c159b522eec9d3e6cc652c97a5bf34813855e27f55cad1ce0728783%26uin%3dMzMxOTMwNTgzNQ%253D%253D%26abtest_cookie%3dAwABAAoADAANAAgAZIgeANWIHgDhiB4A%252FIgeALOJHgD4iR4AGYoeAEyKHgAAAA%253D%253D%26pass_ticket%3dZv88n7fo%252Bw%252By0AlUMhzpKr7nhgDjC63IzRX4opH%252B9t8gTnA5WINVHxQ%252BEWTicx3Iwechat_redirect";
+
+        using (var wc = new WebClient())
+        {
+
+            wc.Headers.Set(HttpRequestHeader.UserAgent, "User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 11_1_2 like Mac OS X; zh-CN) AppleWebKit/537.51.1 (KHTML, like Gecko) Mobile/15B202 UCBrowser/11.7.7.1031 Mobile  AliApp(TUnionSDK/0.1.20)");
+
+            wc.Headers.Set(HttpRequestHeader.Referer, "https://m.mall.qq.com/release/?busid=mxd2&ADTAG=jcp.h5.index.dis");
+            wc.Headers.Set("X-UCBrowser-UA", "dv(iPh9,2);pr(UCBrowser/11.7.7.1031);ov(11_1_2);ss(0x0);bt(UC);pm(0);bv(0);nm(0);im(0);nt(2);");
+            wc.Headers.Set(HttpRequestHeader.ContentType, "application/x-www-form-urlencoded; charset=UTF-8");
+
+
+
+            byte[] data = wc.DownloadData(link);
+
+            string content = System.Text.Encoding.GetEncoding("utf-8").GetString(data);
+            if (!string.IsNullOrEmpty(content))
+            {
+                var match = System.Text.RegularExpressions.Regex.Match(content, @"href\=""(?<link>.*?)#wechat", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+                if (match.Success)
+                {
+                    return match.Groups["link"].Value;
+                }
+            }
+
+        }
+
+        return null;
+    }
+
+    string GetTicketMPWexin(string url)
+    {
+
+
+
         url = url.Replace("http://", string.Empty);
         url = url.Replace("https://", string.Empty);
 
